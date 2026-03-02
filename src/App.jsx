@@ -71,24 +71,37 @@ function calcTSS(a, ftp) {
   return Math.round((a.moving_time/3600)*45);
 }
 
+function getThisWeekActs(acts) {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+  monday.setHours(0,0,0,0);
+  return acts.filter(a => new Date(a.start_date) >= monday);
+}
+
 function getLoad(acts, ftp) {
   if (!acts?.length) return {label:"No Data",sub:"Connect Strava to unlock",pct:0,color:"#999"};
-  const tss=acts.slice(0,10).reduce((s,a)=>s+calcTSS(a,ftp),0);
-  if (tss>600) return {label:"Overreaching",sub:`~${tss} TSS this week`,pct:100,color:"#000"};
-  if (tss>450) return {label:"Well Loaded",sub:`~${tss} TSS this week`,pct:78,color:"#000"};
-  if (tss>280) return {label:"Optimal",sub:`~${tss} TSS this week`,pct:58,color:"#000"};
-  if (tss>120) return {label:"Fresh",sub:`~${tss} TSS this week`,pct:32,color:"#000"};
-  return        {label:"Undertrained",sub:`~${tss} TSS — add volume`,pct:14,color:"#000"};
+  const thisWeek = getThisWeekActs(acts);
+  const tss = thisWeek.reduce((s,a)=>s+calcTSS(a,ftp),0);
+  const count = thisWeek.length;
+  const sub = count > 0 ? `${count} session${count>1?"s":""} this week · ~${tss} TSS` : "No sessions yet this week";
+  if (tss>600) return {label:"Overreaching", sub, pct:100, color:"#000"};
+  if (tss>450) return {label:"Well Loaded",  sub, pct:78,  color:"#000"};
+  if (tss>280) return {label:"Optimal",      sub, pct:58,  color:"#000"};
+  if (tss>120) return {label:"Fresh",        sub, pct:32,  color:"#000"};
+  return              {label:"Undertrained", sub, pct:14,  color:"#000"};
 }
 
 function getLoadAdvice(acts, ftp) {
   if (!acts?.length) return "Connect Strava to get personalized weekly recommendations based on your actual training data.";
-  const tss=acts.slice(0,10).reduce((s,a)=>s+calcTSS(a,ftp),0);
-  if (tss>600) return "Your load is very high. Take an easy week — Z2 only, prioritize sleep. No intensity until you feel fresh.";
-  if (tss>450) return "Good stimulus. Keep this week similar or slightly lighter. Watch for heavy legs or elevated resting HR.";
+  const thisWeek = getThisWeekActs(acts);
+  const tss = thisWeek.reduce((s,a)=>s+calcTSS(a,ftp),0);
+  if (tss>600) return "Your load is very high this week. Take it easy — Z2 only, prioritize sleep. No intensity until you feel fresh.";
+  if (tss>450) return "Good stimulus this week. Keep it similar or slightly lighter. Watch for heavy legs or elevated resting HR.";
   if (tss>280) return "Sweet spot. Push your key sessions this week — brick and intervals are fair game. Stay on top of sleep.";
-  if (tss>120) return "Below target. Extend your long ride and don't skip swim sessions — you have capacity to add volume.";
-  return "Very low stimulus. Ramp up gradually, no more than +10% per week, but you have room to add sessions.";
+  if (tss>120) return "Below target this week. Extend your long ride and don't skip swim sessions — you have capacity to add volume.";
+  return "No sessions logged yet this week. Get your Monday swim in and build from there.";
 }
 
 function daysLeft() { return Math.ceil((RACE_DATE-new Date())/(1000*60*60*24)); }
@@ -103,15 +116,30 @@ function discLabel(d) {
 }
 
 async function stravaFetch(ep, tok) {
-  const r = await fetch(`/api/strava?endpoint=${encodeURIComponent(ep)}&token=${encodeURIComponent(tok)}`);
-  if(!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  // Try direct first, fall back to CORS proxy
+  const url = `https://www.strava.com/api/v3${ep}`;
+  try {
+    const r = await fetch(url, {headers:{Authorization:`Bearer ${tok}`}});
+    if(!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  } catch(e) {
+    // Fallback: use corsproxy.io
+    const proxy = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+    const r = await fetch(proxy, {headers:{Authorization:`Bearer ${tok}`}});
+    if(!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  }
 }
 async function refreshStravaToken(cid,sec,ref) {
-  const r=await fetch("/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({client_id:cid,client_secret:sec,refresh_token:ref})});
-  if(!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  const url="https://www.strava.com/oauth/token";
+  const body=JSON.stringify({client_id:cid,client_secret:sec,refresh_token:ref,grant_type:"refresh_token"});
+  try {
+    const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body});
+    return r.json();
+  } catch {
+    const r=await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{method:"POST",headers:{"Content-Type":"application/json"},body});
+    return r.json();
+  }
 }
 async function askCoach(msgs, ftp, week, load, acts) {
   const sys=`You are a sharp, direct triathlon coach for Shaun, racing 70.3 on September 13, 2026. FTP=${ftp}W, Week ${week}/28 (${PHASE[week]||"Base"}), Load: ${load?.label}. Recent: ${acts?.slice(0,4).map(a=>`${a.type} ${fmt(a.moving_time)} HR:${a.average_heartrate||"—"} W:${a.average_watts||"—"}`).join(" | ")||"none"}. Be direct and specific. 2 paragraphs max.`;
