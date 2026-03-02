@@ -324,19 +324,13 @@ Reduce volume by 40–50% but keep 2–3 short intensity sessions per week to st
   if (tss < 120 && tw.length > 0) weekInsights.push("Load is below target — you have room to push this week.");
   if (bikesThisWeek === 0 && !isTaper) weekInsights.push("No bike sessions yet — Tuesday's endurance ride is your priority.");
 
-  return `Week ${week} of 28 — ${phase} phase. ${weeksToRace} weeks to race day.
-
-${weekInsights.length > 0 ? weekInsights.join(" ") + "
-
-" : ""}This week's priority: ${
-    isTaper ? "rest and short sharp sessions only. Trust your fitness." :
+  const priority = isTaper ? "rest and short sharp sessions only. Trust your fitness." :
     isRace  ? "race simulation. Ride at target watts, run at HIM pace, practice transitions." :
-    isPeak  ? "your biggest training week. Nail the Saturday brick — it's the most important session of the plan." :
+    isPeak  ? "your biggest training week. Nail the Saturday brick — most important session of the plan." :
     week <= 8 ? "aerobic base. Keep every session in Z2. Resist the urge to go harder." :
-    "progressive overload. Hit your key sessions and don't skip the swim."
-  }
-
-Ask me about swim catch-up, bike pacing, race strategy, nutrition, or anything else.`;
+    "progressive overload. Hit your key sessions and don\'t skip the swim.";
+  const insights = weekInsights.length > 0 ? weekInsights.join(" ") + "\n\n" : "";
+  return "Week " + week + " of 28 \u2014 " + phase + " phase. " + weeksToRace + " weeks to race day.\n\n" + insights + "This week\'s priority: " + priority + "\n\nAsk me about swim catch-up, bike pacing, race strategy, nutrition, or anything else.";
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
