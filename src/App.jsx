@@ -223,22 +223,120 @@ async function refreshStravaToken(cid, sec, ref) {
   return r.json();
 }
 
-async function askCoach(msgs, ftp, week, load, acts) {
-  const r = await fetch("/api/coach", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ messages:msgs, ftp, week, phase:PHASE[week]||"Base", load:load?.label,
-      recentActs: acts?.slice(0,5).map(a=>({
-        type:a.type, duration:fmt(a.moving_time),
-        hr: a.average_heartrate||null,
-        watts: a.average_watts||null,
-        suffer: a.suffer_score||null,
-        date: a.start_date?.slice(0,10),
-      }))
-    })
-  });
-  if (!r.ok) throw new Error(`Coach API error ${r.status}`);
-  const d = await r.json();
-  return d.reply || "Coach unavailable.";
+function getRuleCoachReply(question, ftp, week, load, acts) {
+  const q = question.toLowerCase();
+  const phase = PHASE[week] || "Base Building";
+  const isTaper = week >= 25;
+  const isRace = week >= 21 && week <= 24;
+  const isPeak = week >= 17 && week <= 20;
+  const tw = getThisWeekActs(acts);
+  const swimsThisWeek = tw.filter(a => a.type === "Swim").length;
+  const bikesThisWeek = tw.filter(a => a.type === "Ride" || a.type === "VirtualRide").length;
+  const runsThisWeek  = tw.filter(a => a.type === "Run").length;
+  const tss = tw.reduce((s,a) => s + calcTSS(a, ftp), 0);
+  const sweetSpotLo = Math.round(ftp * 0.88);
+  const sweetSpotHi = Math.round(ftp * 0.95);
+  const z2lo = Math.round(ftp * 0.56);
+  const z2hi = Math.round(ftp * 0.75);
+  const weeksToRace = Math.ceil(daysLeft() / 7);
+
+  // SWIM questions
+  if (q.includes("swim") || q.includes("pool") || q.includes("open water")) {
+    if (swimsThisWeek === 0)
+      return `You have zero swims logged this week — that needs to change today. Get in the pool for at least ${PLAN[week]?.[0] || 2000}m. Focus on technique: high elbow catch, bilateral breathing, and sighting every 10 strokes for open water practice.
+
+With ${weeksToRace} weeks to race day, missing swims is your biggest risk. Swim fitness drops fast and open water anxiety builds without pool time. Two swims a week minimum from here — no exceptions.`;
+    return `You have ${swimsThisWeek} swim${swimsThisWeek>1?"s":""} logged this week. Target is 2 per week at this stage. Focus your ${PLAN[week]?.[0] || 2000}m Monday session on technique and your ${PLAN[week]?.[1] || 2000}m Friday session on building aerobic pace.
+
+For open water prep, practice bilateral sighting every 8–10 strokes in the pool. The swim leg is short — your goal is to exit the water relaxed and ready to ride.`;
+  }
+
+  // BIKE / FTP / POWER questions
+  if (q.includes("bike") || q.includes("ride") || q.includes("ftp") || q.includes("power") || q.includes("watt")) {
+    if (q.includes("ftp") || q.includes("improve") || q.includes("increase"))
+      return `To raise your FTP from ${ftp}W, the most effective work is sweet spot intervals: 2–3 sessions per week with 2×20min at ${sweetSpotLo}–${sweetSpotHi}W. Consistency beats intensity — do this for 6–8 weeks and you'll see 5–15W gains.
+
+Avoid the trap of riding too hard on easy days. Your Z2 rides at ${z2lo}–${z2hi}W are building the aerobic base that makes threshold work possible. Keep easy rides easy.`;
+    if (isTaper)
+      return `You're in ${phase} — keep the bike easy. Short rides at ${z2lo}–${z2hi}W just to keep the legs fresh. No long efforts, no intensity. Your fitness is locked in — protect it now.`;
+    if (isRace)
+      return `Race-specific phase. Your key bike target on race day is ${sweetSpotLo}–${sweetSpotHi}W for 56 miles. Practice this on Saturday's brick — hold that power for the full ride duration and then run off immediately.
+
+Practice your nutrition every 20 minutes on the bike. Aim for 60–90g carbs/hour. What you do in training is what you'll do on race day.`;
+    return `This week's bike focus is ${phase === "Base Building" || phase === "Aerobic Dev" ? `Z2 endurance at ${z2lo}–${z2hi}W` : `sweet spot work at ${sweetSpotLo}–${sweetSpotHi}W`}. You have ${bikesThisWeek} bike session${bikesThisWeek!==1?"s":""} logged so far this week.
+
+For your 70.3 bike leg, you want to hold ${sweetSpotLo}–${sweetSpotHi}W (80–90% FTP) comfortably for 56 miles. Every ride builds toward that. Keep cadence 85–95rpm and practice fueling every 20 minutes.`;
+  }
+
+  // RUN questions
+  if (q.includes("run") || q.includes("pace") || q.includes("brick")) {
+    if (q.includes("brick"))
+      return `Brick workouts are your most important race prep. After every long ride, get your run shoes on within 90 seconds — the transition discomfort you feel is exactly what you're training your legs to handle.
+
+Target 20–40 minutes off the bike at an easy effort first. As you approach race weeks, build to HIM pace (7:30–8:00/mi) for the last half of the run. Practice your T2 routine every single time.`;
+    if (isTaper)
+      return `You're tapering — keep runs short and easy. 20–30 minutes max at a comfortable conversational pace. A couple of short strides (8×10 seconds fast) are fine to keep the legs sharp, but nothing more.`;
+    return `You have ${runsThisWeek} run${runsThisWeek!==1?"s":""} logged this week. Your 70.3 run target is 7:30–8:00/mi for 13.1 miles — that's a pace you should only be flirting with in key sessions, not easy days.
+
+The most important run discipline for 70.3 is running Z2 on easy days. If you go too hard on your Wednesday run, your legs won't be fresh for the Saturday brick or Sunday long run. Protect the easy days.`;
+  }
+
+  // NUTRITION questions
+  if (q.includes("nutrition") || q.includes("food") || q.includes("fuel") || q.includes("eat") || q.includes("carb")) {
+    return `Race day nutrition for 70.3: eat a solid carb-heavy breakfast 2–3 hours before start (oats, banana, toast — ~600–800 cal). On the bike, target 60–90g carbs/hour — gels, chews, or liquid. Take in fluids every 15–20 minutes.
+
+Don't try anything new on race day. Practice your exact race nutrition on every long ride and brick from now on. Your gut needs training just like your legs do. A nutrition failure on the bike is the most common reason people blow up on the run.`;
+  }
+
+  // RACE DAY questions
+  if (q.includes("race") || q.includes("race day") || q.includes("strategy") || q.includes("pacing")) {
+    return `Race day strategy for ${weeksToRace} weeks out:
+
+🏊 Swim easy — seed yourself to avoid the washing machine start. Sight every 8 strokes. Exit the water relaxed.
+
+🚴 Bike conservative for the first 10 miles — hold ${sweetSpotLo}–${sweetSpotHi}W and don't chase people going out too hard. This is where most athletes blow their run. Fuel every 20 minutes.
+
+🏃 Run the first mile easy. Build into your 7:30–8:00/mi target. If you biked smart, miles 8–13 are where you pass everyone who didn't.`;
+  }
+
+  // RECOVERY / FATIGUE questions
+  if (q.includes("tired") || q.includes("fatigue") || q.includes("rest") || q.includes("recover") || q.includes("sore")) {
+    if (load?.label === "Overreaching")
+      return `Your load is very high — this is your body telling you something. Take 1–2 easy days: short Z2 ride or easy 20min jog only. Prioritize 8+ hours sleep, hit your protein (0.7g per lb bodyweight), and get off your feet.
+
+Fatigue is not the enemy — unmanaged fatigue is. One easy day now is worth three days of forced rest later.`;
+    return `With ${tss > 0 ? `~${tss} TSS logged` : "low load"} this week, ${tss > 280 ? "your fatigue is legitimate — honor it" : "you have room to push but listen to your body"}. Make sure you're sleeping 7–9 hours, eating enough carbs to fuel training, and not stacking hard sessions back to back.
+
+If your resting HR is elevated by 5+ BPM or you feel flat on a session that should feel easy — those are signals to back off.`;
+  }
+
+  // TAPER questions
+  if (q.includes("taper") || q.includes("peak") || (isTaper && q.includes("week"))) {
+    return `You're ${weeksToRace} weeks out. ${isTaper ? "Taper is working — trust it even when you feel antsy or flat. That's normal." : "You're not in taper yet, but it's close."}
+
+Reduce volume by 40–50% but keep 2–3 short intensity sessions per week to stay sharp. Race day fitness is already built — you're just letting your body absorb it now. Don't add extra sessions because you feel fresh. The hay is in the barn.`;
+  }
+
+  // GENERAL weekly advice
+  const weekInsights = [];
+  if (swimsThisWeek === 0) weekInsights.push("⚠️ No swim yet this week — get in the pool today.");
+  if (tss > 450) weekInsights.push("Your load is high — protect your sleep and keep easy sessions truly easy.");
+  if (tss < 120 && tw.length > 0) weekInsights.push("Load is below target — you have room to push this week.");
+  if (bikesThisWeek === 0 && !isTaper) weekInsights.push("No bike sessions yet — Tuesday's endurance ride is your priority.");
+
+  return `Week ${week} of 28 — ${phase} phase. ${weeksToRace} weeks to race day.
+
+${weekInsights.length > 0 ? weekInsights.join(" ") + "
+
+" : ""}This week's priority: ${
+    isTaper ? "rest and short sharp sessions only. Trust your fitness." :
+    isRace  ? "race simulation. Ride at target watts, run at HIM pace, practice transitions." :
+    isPeak  ? "your biggest training week. Nail the Saturday brick — it's the most important session of the plan." :
+    week <= 8 ? "aerobic base. Keep every session in Z2. Resist the urge to go harder." :
+    "progressive overload. Hit your key sessions and don't skip the swim."
+  }
+
+Ask me about swim catch-up, bike pacing, race strategy, nutrition, or anything else.`;
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
@@ -263,7 +361,6 @@ export default function App() {
     content:"Hey Shaun. Week " + getCurrentWeek() + " of 28 — " + weeksLeft() + " weeks to race day.\n\nYou mentioned missing some swims lately. Let's make sure that doesn't snowball. What's on your mind — today's session, race strategy, nutrition, or something else?"
   }]);
   const [chatIn,    setChatIn]    = useState("");
-  const [chatLoad,  setChatLoad]  = useState(false);
   const chatEnd = useRef(null);
 
   const days    = daysLeft();
@@ -346,18 +443,12 @@ export default function App() {
     setLoading(false);
   };
 
-  const send = async () => {
-    if (!chatIn.trim() || chatLoad) return;
+  const send = () => {
+    if (!chatIn.trim()) return;
     const u = {role:"user", content:chatIn};
-    const n = [...chat, u];
-    setChat(n); setChatIn(""); setChatLoad(true);
-    try {
-      const reply = await askCoach(n, ftp, week, load, acts);
-      setChat([...n, {role:"assistant", content:reply}]);
-    } catch {
-      setChat([...n, {role:"assistant", content:"Connection error — try again in a moment."}]);
-    }
-    setChatLoad(false);
+    const reply = getRuleCoachReply(chatIn, ftp, week, load, acts);
+    setChat(prev => [...prev, u, {role:"assistant", content:reply}]);
+    setChatIn("");
   };
 
   const updateFtp = () => {
@@ -802,8 +893,7 @@ export default function App() {
               {chat.map((m,i) => (
                 <div key={i} className={m.role==="user"?"bubble-me":"bubble-ai"} style={{whiteSpace:"pre-wrap"}}>{m.content}</div>
               ))}
-              {chatLoad && <div className="bubble-ai" style={{color:"#bbb"}}>Thinking…</div>}
-              <div ref={chatEnd}/>
+                            <div ref={chatEnd}/>
             </div>
 
             {chat.length <= 2 && (
@@ -827,7 +917,7 @@ export default function App() {
                   placeholder="Message your coach…" value={chatIn}
                   onChange={e=>setChatIn(e.target.value)}
                   onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}/>
-                <button className="tap-btn" style={{width:"auto",padding:"12px 16px",fontSize:16}} onClick={send} disabled={chatLoad||!chatIn.trim()}>↑</button>
+                <button className="tap-btn" style={{width:"auto",padding:"12px 16px",fontSize:16}} onClick={send} disabled={!chatIn.trim()}>↑</button>
               </div>
             </div>
           </div>
