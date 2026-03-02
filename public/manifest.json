@@ -1,0 +1,13 @@
+{
+  "name": "70.3 Trainer",
+  "short_name": "70.3",
+  "description": "70.3 Triathlon Training Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
